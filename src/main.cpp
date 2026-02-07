@@ -1,9 +1,19 @@
+// main.cpp
 #include "../include/tracker.h"
 #include "../include/webview.h" 
 #include <windows.h>
 #include <shellapi.h>
+#include <commdlg.h> 
 #include <sstream>
 #include <string>
+#include <dwmapi.h>
+
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
+#ifndef DWMWCP_ROUND
+#define DWMWCP_ROUND 2
+#endif
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_EXIT 1001
@@ -13,8 +23,6 @@
 HWND g_hMainWnd = NULL;
 NOTIFYICONDATAA g_nid;
 WNDPROC g_OriginalWndProc = NULL;
-
-// 获取配置文件路径
 std::string GetConfigPath() {
     char path[MAX_PATH];
     GetModuleFileNameA(NULL, path, MAX_PATH);
@@ -23,39 +31,59 @@ std::string GetConfigPath() {
     return exeDir + "\\config.ini";
 }
 
-// 保存窗口位置
+std::string GetExeDir() {
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+    std::string exeDir = path;
+    return exeDir.substr(0, exeDir.find_last_of("\\/"));
+}
+
+void SaveUiConfig(const std::string& key, const std::string& value) {
+    WritePrivateProfileStringA("UI", key.c_str(), value.c_str(), GetConfigPath().c_str());
+}
+
+std::string LoadUiConfig(const std::string& key, const std::string& defaultVal) {
+    char buf[MAX_PATH];
+    GetPrivateProfileStringA("UI", key.c_str(), defaultVal.c_str(), buf, MAX_PATH, GetConfigPath().c_str());
+    return std::string(buf);
+}
+
 void SaveWindowPos(HWND hwnd) {
     RECT rect;
     if (GetWindowRect(hwnd, &rect)) {
-        std::string path = GetConfigPath();
-        WritePrivateProfileStringA("Window", "X", std::to_string(rect.left).c_str(), path.c_str());
-        WritePrivateProfileStringA("Window", "Y", std::to_string(rect.top).c_str(), path.c_str());
+        SaveUiConfig("WinX", std::to_string(rect.left));
+        SaveUiConfig("WinY", std::to_string(rect.top));
+        SaveUiConfig("WinW", std::to_string(rect.right - rect.left));
+        SaveUiConfig("WinH", std::to_string(rect.bottom - rect.top));
     }
 }
 
-// 加载窗口位置
 void LoadWindowPos(HWND hwnd) {
-    std::string path = GetConfigPath();
-    int x = GetPrivateProfileIntA("Window", "X", -1, path.c_str());
-    int y = GetPrivateProfileIntA("Window", "Y", -1, path.c_str());
-    
-    // 如果读取到了有效坐标 (-1 表示没存过)
+    int x = std::stoi(LoadUiConfig("WinX", "-1"));
+    int y = std::stoi(LoadUiConfig("WinY", "-1"));
+    int w = std::stoi(LoadUiConfig("WinW", "320"));
+    int h = std::stoi(LoadUiConfig("WinH", "380"));
+
     if (x != -1 && y != -1) {
-        // SWP_NOSIZE: 保持大小不变, SWP_NOZORDER: 保持层级不变
-        SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        SetWindowPos(hwnd, NULL, x, y, w, h, SWP_NOZORDER);
     }
 }
 
-// JSON 生成
 std::string MakeJsonStats() {
     auto& tracker = CodeTracker::Get();
     std::stringstream ss;
     ss << "{";
     ss << "\"total\": " << tracker.GetTotalTime() << ",";
     ss << "\"session\": " << tracker.GetSessionTime() << ",";
-    ss << "\"isStrict\": " << (tracker.IsStrictMode() ? "true" : "false") << ",";
     ss << "\"isTracking\": " << (tracker.IsTracking() ? "true" : "false") << ",";
-    
+
+    if (g_hMainWnd) {
+        RECT rc;
+        GetWindowRect(g_hMainWnd, &rc);
+        ss << "\"winW\": " << (rc.right - rc.left) << ",";
+        ss << "\"winH\": " << (rc.bottom - rc.top) << ",";
+    }
+
     std::string app = tracker.GetCurrentApp();
     std::string escapedApp;
     for (char c : app) {
@@ -68,6 +96,24 @@ std::string MakeJsonStats() {
     return ss.str();
 }
 
+std::string OpenFileDialog(HWND owner) {
+    OPENFILENAMEA ofn;
+    char szFile[MAX_PATH] = {0};
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = owner;
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = sizeof(szFile);
+    ofn.lpstrFilter = "Images\0*.jpg;*.jpeg;*.png;*.bmp;*.gif\0All\0*.*\0";
+    ofn.nFilterIndex = 1;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    if (GetOpenFileNameA(&ofn) == TRUE) {
+        return std::string(ofn.lpstrFile);
+    }
+    return "";
+}
+
 void InitTrayIcon(HWND hwnd) {
     g_nid.cbSize = sizeof(NOTIFYICONDATAA);
     g_nid.hWnd = hwnd;
@@ -75,43 +121,23 @@ void InitTrayIcon(HWND hwnd) {
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = LoadIconA(GetModuleHandle(NULL), (LPCSTR)MAKEINTRESOURCE(IDI_MAIN_ICON)); 
-    if (!g_nid.hIcon) g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    if (!g_nid.hIcon) g_nid.hIcon = LoadIconA(NULL, (LPCSTR)IDI_APPLICATION);
     strcpy(g_nid.szTip, "Code Tracker (Running)");
     Shell_NotifyIconA(NIM_ADD, &g_nid);
 }
 
-void RemoveTrayIcon() {
-    Shell_NotifyIconA(NIM_DELETE, &g_nid);
-}
-
-// 窗口过程回调 (处理拖拽和托盘)
 LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
-        // 【核心修复1】：手动处理无边框窗口的拖拽
+        case WM_NCCALCSIZE: {
+            if (wParam) return 0;
+            break;
+        }
         case WM_NCHITTEST: {
-            // 获取鼠标位置 (屏幕坐标)
-            POINT pt = { LOWORD(lParam), HIWORD(lParam) };
-            // 转换为窗口客户区坐标
-            ScreenToClient(hwnd, &pt);
-
-            // 如果鼠标在顶部 32px 区域内 (模拟标题栏)
-            if (pt.y < 32) {
-                RECT rcClient;
-                GetClientRect(hwnd, &rcClient);
-                
-                // 【重要】：排除右上角关闭按钮区域 (假设右侧 50px 为按钮区)
-                // 如果不排除，点击关闭按钮会被系统认为是“拖拽”，导致按钮点不动
-                if (pt.x > (rcClient.right - 50)) {
-                    return HTCLIENT; // 这里的点击交给网页处理 (关闭按钮)
-                }
-                
-                return HTCAPTION; // 其他顶部区域告诉系统这是“标题栏”，允许拖拽
-            }
-            break; // 其他区域交给默认处理
+            return HTCLIENT;
         }
 
         case WM_CLOSE:
-            SaveWindowPos(hwnd); // 隐藏前保存位置
+            SaveWindowPos(hwnd); 
             ShowWindow(hwnd, SW_HIDE);
             return 0;
 
@@ -120,18 +146,16 @@ LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 ShowWindow(hwnd, SW_SHOW);
                 SetForegroundWindow(hwnd);
             } else if (lParam == WM_RBUTTONUP) {
-                POINT pt;
-                GetCursorPos(&pt);
+                POINT pt; GetCursorPos(&pt);
                 HMENU hMenu = CreatePopupMenu();
                 AppendMenuA(hMenu, MF_STRING, ID_TRAY_SHOW, "Show Tracker");
                 AppendMenuA(hMenu, MF_STRING, ID_TRAY_EXIT, "Exit Completely");
                 SetForegroundWindow(hwnd); 
                 int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_BOTTOMALIGN, pt.x, pt.y, 0, hwnd, NULL);
                 DestroyMenu(hMenu);
-
                 if (cmd == ID_TRAY_EXIT) {
-                    SaveWindowPos(hwnd); // 退出前保存位置
-                    RemoveTrayIcon();
+                    SaveWindowPos(hwnd);
+                    Shell_NotifyIconA(NIM_DELETE, &g_nid);
                     SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)g_OriginalWndProc);
                     DestroyWindow(hwnd); 
                 } else if (cmd == ID_TRAY_SHOW) {
@@ -140,9 +164,9 @@ LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 }
             }
             break;
-            
+
         case WM_DESTROY:
-            RemoveTrayIcon();
+            Shell_NotifyIconA(NIM_DELETE, &g_nid);
             PostQuitMessage(0);
             break;
     }
@@ -164,15 +188,69 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         w.resolve(seq, 0, MakeJsonStats());
     }, nullptr);
 
-    w.bind("set_strict", [&](std::string seq, std::string req, void* arg) {
-        bool strict = (req.find("true") != std::string::npos);
-        CodeTracker::Get().SetStrictMode(strict);
+    w.bind("pick_bg_image", [&](std::string seq, std::string req, void* arg) {
+        std::string srcPath = OpenFileDialog(g_hMainWnd);
+        std::string finalPath = "";
+        if (!srcPath.empty()) {
+            std::string exeDir = GetExeDir();
+            std::string bgDir = exeDir + "\\bg";
+            CreateDirectoryA(bgDir.c_str(), NULL);
+            std::string fileName = srcPath.substr(srcPath.find_last_of("\\/") + 1);
+            std::string destPath = bgDir + "\\" + fileName;
+            if (CopyFileA(srcPath.c_str(), destPath.c_str(), FALSE)) finalPath = destPath;
+            else finalPath = srcPath; 
+            for (auto& c : finalPath) if (c == '\\') c = '/';
+            SaveUiConfig("BgPath", finalPath);
+        }
+        w.resolve(seq, 0, "\"" + finalPath + "\""); 
+    }, nullptr);
+
+    w.bind("save_blur", [&](std::string seq, std::string req, void* arg) {
+        if (req.size() > 2) {
+            std::string val = req.substr(1, req.size()-2);
+            SaveUiConfig("BlurVal", val);
+        }
         w.resolve(seq, 0, "");
     }, nullptr);
 
-    w.bind("close_app", [&](std::string seq, std::string req, void* arg) {
-        SaveWindowPos(g_hMainWnd); // JS 触发关闭时保存
+    w.bind("get_config", [&](std::string seq, std::string req, void* arg) {
+        std::string bg = LoadUiConfig("BgPath", "");
+        std::string blur = LoadUiConfig("BlurVal", "10");
+        std::string json = "{\"bg\":\"" + bg + "\", \"blur\":" + blur + "}";
+        w.resolve(seq, 0, json);
+    }, nullptr);
+
+    w.bind("app_minimize", [&](std::string seq, std::string req, void* arg) {
+        SaveWindowPos(g_hMainWnd);
         ShowWindow(g_hMainWnd, SW_HIDE);
+        w.resolve(seq, 0, "");
+    }, nullptr);
+    
+    w.bind("app_exit", [&](std::string seq, std::string req, void* arg) {
+        SaveWindowPos(g_hMainWnd);
+        DestroyWindow(g_hMainWnd); 
+        w.resolve(seq, 0, "");
+    }, nullptr);
+
+    w.bind("drag_window", [&](std::string seq, std::string req, void* arg) {
+        ReleaseCapture();
+        POINT pt; GetCursorPos(&pt);
+        PostMessage(g_hMainWnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+        w.resolve(seq, 0, "");
+    }, nullptr);
+
+    w.bind("resize_window", [&](std::string seq, std::string req, void* arg) {
+        size_t comma = req.find(',');
+        if (comma != std::string::npos && req.size() > 2) {
+            try {
+                int width = std::stoi(req.substr(1, comma-1));
+                int height = std::stoi(req.substr(comma+1, req.size()-comma-2));
+                if (width > 0 && height > 0) {
+                    SetWindowPos(g_hMainWnd, NULL, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER);
+                    SaveWindowPos(g_hMainWnd); // 立即保存
+                }
+            } catch(...) {}
+        }
         w.resolve(seq, 0, "");
     }, nullptr);
 
@@ -185,16 +263,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     g_hMainWnd = (HWND)w.window().value(); 
 
-    // 移除标题栏样式
     LONG_PTR style = GetWindowLongPtr(g_hMainWnd, GWL_STYLE);
-    style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU);
+    style &= ~(WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MAXIMIZEBOX); 
+    // style |= WS_MINIMIZEBOX; 
     SetWindowLongPtr(g_hMainWnd, GWL_STYLE, style);
-    SetWindowPos(g_hMainWnd, NULL, 0, 0, 0, 0, 
-        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
 
-    // 【核心修复2】：在显示窗口前，加载上次的位置
+    SetWindowPos(g_hMainWnd, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    int preference = DWMWCP_ROUND;
+    DwmSetWindowAttribute(g_hMainWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
+
     LoadWindowPos(g_hMainWnd);
-
     InitTrayIcon(g_hMainWnd);
     g_OriginalWndProc = (WNDPROC)SetWindowLongPtr(g_hMainWnd, GWLP_WNDPROC, (LONG_PTR)SubclassProc);
 

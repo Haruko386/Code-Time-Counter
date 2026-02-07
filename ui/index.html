@@ -1,62 +1,155 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         :root {
-            --bg-color: #1a1b26;
-            --card-bg: #24283b;
-            --text-main: #c0caf5;
-            --text-sub: #565f89;
-            --accent: #7aa2f7; /* 这里定义了淡蓝色 */
-            --danger: #f7768e;
-            --success: #9ece6a;
+            --text-main: #ffffff;
+            --text-sub: rgba(255, 255, 255, 0.7);
+            --accent: #7aa2f7;
+            --menu-bg: rgba(0, 0, 0, 0.8);
         }
-        
+
         body {
             font-family: 'Segoe UI', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
             margin: 0;
             padding: 0;
             height: 100vh;
+            width: 100vw;
             overflow: hidden;
             user-select: none;
+            background: #1a1b26;
+        }
+
+        #bg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-size: cover;
+            background-position: center;
+            z-index: 0;
+            transition: background-image 0.5s ease;
+        }
+
+        #glass-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
             display: flex;
             flex-direction: column;
-            border: 1px solid #333;
-            box-sizing: border-box;
+            background: rgba(0, 0, 0, 0.4);
         }
 
         .title-bar {
-            height: 32px;
+            height: 40px;
             display: flex;
-            justify-content: flex-end;
+            justify-content: space-between;
             align-items: center;
-            padding: 0 10px;
-            /* 注意：我们在 C++ 里接管了拖拽，这里的 CSS drag 也可以保留作为双重保险 */
-            -webkit-app-region: drag; 
-            background: rgba(0,0,0,0.1);
+            padding: 0 15px;
+            cursor: default;
         }
 
-        .close-btn {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #ff5f56;
+        .icon-btn {
+            width: 24px;
+            height: 24px;
             cursor: pointer;
-            -webkit-app-region: no-drag;
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: 12px;
-            color: #4a0002;
+            color: var(--text-main);
+            font-size: 18px;
             opacity: 0.8;
             transition: 0.2s;
+            border-radius: 4px;
         }
-        .close-btn:hover { opacity: 1; transform: scale(1.1); }
-        .close-btn::before { content: "×"; font-weight: bold; margin-top: -1px;}
+
+        .icon-btn:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .close-btn:hover {
+            background: #ff5f56;
+        }
+
+        #menu-dropdown {
+            position: absolute;
+            top: 45px;
+            left: 10px;
+            width: 240px;
+            /* 稍微加宽一点 */
+            background: var(--menu-bg);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            padding: 10px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+        }
+
+        #menu-dropdown.show {
+            display: flex;
+        }
+
+        .menu-item {
+            color: var(--text-main);
+            font-size: 13px;
+            padding: 5px 8px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .menu-btn {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            cursor: pointer;
+            padding: 5px 0;
+        }
+
+        .menu-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .menu-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 2px 0;
+        }
+
+        .slider-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        input[type=range] {
+            flex: 1;
+            accent-color: var(--accent);
+            margin: 0 10px;
+            height: 4px;
+        }
+
+        .val-label {
+            font-size: 11px;
+            color: var(--text-sub);
+            width: 30px;
+            text-align: right;
+        }
 
         .container {
             flex: 1;
@@ -64,106 +157,134 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 20px;
         }
 
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            background: rgba(255,255,255,0.05);
+        .status-pill {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             padding: 4px 12px;
             border-radius: 20px;
             font-size: 12px;
-            margin-bottom: 20px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: #555; transition: 0.3s; }
-        .dot.active { background: var(--success); box-shadow: 0 0 8px var(--success); }
-
-        .time-display {
-            font-size: 48px;
-            font-weight: 700;
-            margin: 10px 0;
-            line-height: 1;
-            color: #fff;
-        }
-        .session-label { font-size: 12px; color: var(--text-sub); text-transform: uppercase; letter-spacing: 1px; }
-        .session-time { font-size: 14px; color: var(--accent); margin-top: 5px; }
-
-        .toggle-container {
-            margin-top: 40px;
+            color: var(--text-sub);
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 13px;
-            color: var(--text-sub);
+            margin-bottom: 20px;
         }
-        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            /* 【修改点】：使用 var(--accent) 即淡蓝色，替代之前的灰色 */
-            background-color: var(--accent); 
-            transition: .4s;
-            border-radius: 34px;
-            -webkit-app-region: no-drag;
-        }
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .4s;
+
+        .dot {
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
+            background: #666;
+            margin-right: 6px;
+            transition: 0.3s;
         }
-        /* 严格模式 (Checked) 保持红色 */
-        input:checked + .slider { background-color: var(--danger); }
-        input:checked + .slider:before { transform: translateX(20px); }
+
+        .dot.active {
+            background: #9ece6a;
+            box-shadow: 0 0 8px #9ece6a;
+        }
+
+        .time-big {
+            font-size: 56px;
+            font-weight: bold;
+            color: var(--text-main);
+            line-height: 1;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .label {
+            font-size: 12px;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 5px;
+        }
+
+        .time-small {
+            font-size: 16px;
+            color: var(--accent);
+            margin-top: 5px;
+            font-weight: 600;
+        }
 
         .app-name {
-            margin-top: auto;
-            padding-bottom: 10px;
-            font-size: 10px;
+            margin-top: 40px;
+            font-size: 12px;
             color: var(--text-sub);
-            max-width: 250px;
+            max-width: 80%;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
     </style>
 </head>
+
 <body>
-    <div class="title-bar">
-        <div class="close-btn" onclick="closeApp()"></div>
-    </div>
+    <div id="bg-layer"></div>
 
-    <div class="container">
-        <div class="status-badge">
-            <div class="dot" id="statusDot"></div>
-            <span id="statusText">Idle</span>
+    <div id="glass-layer">
+        <div class="title-bar" onmousedown="dragWindow(event)">
+            <div class="icon-btn" onclick="toggleMenu()">☰</div>
+            <div class="icon-btn close-btn" onclick="minimizeApp()">×</div>
         </div>
 
-        <div class="time-display" id="totalTime">00:00:00</div>
-        
-        <div class="session-label">Current Session</div>
-        <div class="session-time" id="sessionTime">00:00:00</div>
+        <div id="menu-dropdown">
+            <div class="menu-item menu-btn" onclick="pickBackground()">
+                <span>Upload Background</span>
+                <span>🖼️</span>
+            </div>
 
-        <div class="toggle-container">
-            <span>Loose</span>
-            <label class="switch">
-                <input type="checkbox" id="strictModeToggle" onclick="toggleStrict()">
-                <span class="slider"></span>
-            </label>
-            <span>Strict</span>
+            <div class="menu-item">
+                <div class="slider-row">
+                    <span>Blur</span>
+                    <input type="range" id="blurSlider" min="0" max="30" value="10" oninput="updateBlur(this.value)"
+                        onchange="saveBlur(this.value)">
+                    <span class="val-label" id="blurVal">10</span>
+                </div>
+            </div>
+
+            <div class="menu-divider"></div>
+
+            <div class="menu-item">
+                <span style="color:var(--accent); font-size:12px; margin-bottom:4px;">Window Size</span>
+
+                <div class="slider-row">
+                    <span>W</span>
+                    <input type="range" id="widthSlider" min="200" max="800" step="10"
+                        oninput="resizeWindow('w', this.value)" onmousedown="startResizing()"
+                        onmouseup="stopResizing()">
+                    <span class="val-label" id="widthVal">320</span>
+                </div>
+
+                <div class="slider-row" style="margin-top:5px;">
+                    <span>H</span>
+                    <input type="range" id="heightSlider" min="200" max="800" step="10"
+                        oninput="resizeWindow('h', this.value)" onmousedown="startResizing()"
+                        onmouseup="stopResizing()">
+                    <span class="val-label" id="heightVal">380</span>
+                </div>
+            </div>
+
+            <div class="menu-divider"></div>
+
+            <div class="menu-item menu-btn" onclick="exitApp()" style="color: #f7768e;">
+                <span>Exit Application</span>
+                <span>🚪</span>
+            </div>
         </div>
 
-        <div class="app-name" id="currentApp">Ready</div>
+        <div class="container" onclick="closeMenu()">
+            <div class="status-pill">
+                <div class="dot" id="statusDot"></div>
+                <span id="statusText">Idle</span>
+            </div>
+            <div class="time-big" id="sessionTime">00:00:00</div>
+            <div class="label">Session</div>
+            <div class="time-small" id="totalTime">00:00:00</div>
+            <div class="label" style="font-size: 10px;">Total Time</div>
+            <div class="app-name" id="currentApp">Ready to code</div>
+        </div>
     </div>
 
     <script>
@@ -171,45 +292,86 @@
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
             const s = totalSeconds % 60;
-            return `${String(h).padStart(2,'0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+        function toggleMenu() { document.getElementById('menu-dropdown').classList.toggle('show'); }
+        function closeMenu() { document.getElementById('menu-dropdown').classList.remove('show'); }
+        async function minimizeApp() { await window.app_minimize(); }
+        async function exitApp() { await window.app_exit(); }
+
+        async function pickBackground() {
+            const path = await window.pick_bg_image();
+            if (path && path.length > 0) applyBackground(path);
+        }
+        function applyBackground(path) {
+            const cleanPath = path.replace(/\\/g, '/');
+            document.getElementById('bg-layer').style.backgroundImage = `url('file:///${cleanPath}')`;
+        }
+        function updateBlur(val) {
+            document.getElementById('glass-layer').style.backdropFilter = `blur(${val}px)`;
+            document.getElementById('blurVal').innerText = val;
+        }
+        async function saveBlur(val) { await window.save_blur(val); }
+
+        let isUserResizing = false; // 标记用户是否正在拖动滑块
+
+        function startResizing() { isUserResizing = true; }
+        function stopResizing() { isUserResizing = false; }
+
+        function resizeWindow(type, val) {
+            let w = document.getElementById('widthSlider').value;
+            let h = document.getElementById('heightSlider').value;
+
+            document.getElementById('widthVal').innerText = w;
+            document.getElementById('heightVal').innerText = h;
+
+            window.resize_window(`[${w}, ${h}]`);
         }
 
-        async function toggleStrict() {
-            const checkbox = document.getElementById('strictModeToggle');
-            await window.set_strict(checkbox.checked); 
-        }
+        // 初始化配置
+        (async () => {
+            try {
+                const config = await window.get_config();
+                if (config.bg) applyBackground(config.bg);
+                const blur = config.blur || 10;
+                document.getElementById('blurSlider').value = blur;
+                updateBlur(blur);
+            } catch (e) { }
+        })();
 
-        async function closeApp() {
-            await window.close_app();
-        }
-
+        // 定时循环
         setInterval(async () => {
             try {
-                const data = await window.get_stats(); 
-                
-                document.getElementById('totalTime').innerText = formatTime(data.total);
-                document.getElementById('sessionTime').innerText = formatTime(data.session);
-                
-                const toggle = document.getElementById('strictModeToggle');
-                if (toggle.checked !== data.isStrict) {
-                    toggle.checked = data.isStrict;
+                const json = await window.get_stats();
+
+                document.getElementById('totalTime').innerText = formatTime(json.total);
+                document.getElementById('sessionTime').innerText = formatTime(json.session);
+                document.getElementById('currentApp').innerText = json.app;
+                if (!isUserResizing && json.winW && json.winH) {
+                    document.getElementById('widthSlider').value = json.winW;
+                    document.getElementById('widthVal').innerText = json.winW;
+                    document.getElementById('heightSlider').value = json.winH;
+                    document.getElementById('heightVal').innerText = json.winH;
                 }
-                
-                document.getElementById('currentApp').innerText = data.app;
-                
+
                 const dot = document.getElementById('statusDot');
                 const txt = document.getElementById('statusText');
-                if (data.isTracking) {
+                if (json.isTracking) {
                     dot.classList.add('active');
                     txt.innerText = "Tracking";
                 } else {
                     dot.classList.remove('active');
                     txt.innerText = "Idle";
                 }
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { }
         }, 1000);
+
+        function dragWindow(e) {
+            if (e.target.closest('.icon-btn') || e.target.closest('input')) return;
+            e.preventDefault();
+            window.drag_window();
+        }
     </script>
 </body>
+
 </html>
